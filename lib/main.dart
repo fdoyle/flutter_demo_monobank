@@ -25,28 +25,32 @@ class MyApp extends StatelessWidget {
 class BankingData {
   List<BankingEntry> entries;
 
-  int total;
+  int totalSpent;
   List<double> percentages;
-  List<double> percentageOffsets;
+  List<double> sectionStartPercentage;
 
   BankingData(this.entries) {
-    total = entries
+    totalSpent = entries
         .map((entry) => entry.amount)
         .fold(0, (total, entry) => total + entry);
-    percentages = entries.map((entry) => (entry.amount / total)).toList();
+    percentages = entries
+        .map((entry) => (entry.amount / totalSpent))
+        .toList(); //what percentage of the whole is each entry
 
+    //if I want to lay these values out on a line from 0 to 1 (or divide up a circle, as we will later),
+    // where along that 0 to 1 line does each 'section' start.
     double runningTotal = 0;
-    List<double> o = List();
+    List<double> offsets = List();
     for (double p in percentages) {
-      o.add(runningTotal);
+      offsets.add(runningTotal);
       runningTotal += p;
     }
-    o.add(1);
-    percentageOffsets = o;
+    offsets.add(1);
+    sectionStartPercentage = offsets;
   }
 
   int getTotal() {
-    return total;
+    return totalSpent;
   }
 
   List<BankingEntry> getBankingEntries() {
@@ -55,7 +59,6 @@ class BankingData {
 }
 
 class BankingEntry {
-  //todo needs color data
   String label;
   int amount;
   IconData icon;
@@ -81,7 +84,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  double currentPage = 0;
+  double currentPageViewPosition = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -89,46 +92,54 @@ class _MyHomePageState extends State<MyHomePage> {
     PageController iconController = PageController();
     controller.addListener(() {
       setState(() {
-        currentPage = controller.page;
+        currentPageViewPosition = controller.page;
       });
       iconController.jumpTo(controller.position
-          .pixels); //these pageviews must have same size for this to work
+          .pixels); //sync the iconController position to the default controller position
     });
 
-    double pageFraction = currentPage - currentPage.floor();
-    int currentPageNumber = currentPage.floor();
+    double pageScrolledPercent = currentPageViewPosition -
+        currentPageViewPosition.floor(); //fractional part of currentPage
+    int currentPageNumber =
+        currentPageViewPosition.floor(); //whole part of currentPage
 
-
-    //current start will be {pageFraction}% between {currentPageNumber} offset and {currentPageNumber+1} offset
-    double currentPageOffset = bankingData.percentageOffsets[currentPageNumber];
+    double currentPageOffset =
+        bankingData.sectionStartPercentage[currentPageNumber];
     double currentPageSize = bankingData.percentages[currentPageNumber];
 
-    double nextPageOffset =
-        bankingData.percentageOffsets[currentPageNumber + 1];
+    double nextPageSectionStart =
+        bankingData.sectionStartPercentage[currentPageNumber + 1];
     double nextPageSize;
     if (currentPageNumber + 1 >= bankingData.percentages.length) {
-      nextPageSize = 0; //we're at the last one, don't wrap yet
+      nextPageSize = 0; //we're at the last page, so this value will never be used. That changes if you want an infinite viewpager
     } else {
       nextPageSize = bankingData.percentages[currentPageNumber + 1];
     }
 
-    double startOffset = pageFraction * currentPageSize + currentPageOffset;
-    double endOffset = pageFraction * nextPageSize + nextPageOffset;
+    double sectionStartOffsetPercent =
+        pageScrolledPercent * currentPageSize + currentPageOffset;
+    double sectionEndOffsetPercent =
+        pageScrolledPercent * nextPageSize + nextPageSectionStart;
 
-    double startDegrees = 360 * startOffset;
-    double endDegrees = 360 * endOffset;
+    double startDegrees = 360 * sectionStartOffsetPercent;
+    double endDegrees = 360 * sectionEndOffsetPercent;
 
     MaterialColor color = bankingData.entries[currentPageNumber].color;
     MaterialColor nextColor;
     if (currentPageNumber + 1 >= bankingData.entries.length) {
-      nextColor = Colors.red;
+      nextColor = Colors.red; //we're at the last page, so the color of the page after that will never be used. this is just an arbitrary placeholder
     } else {
       nextColor = bankingData.entries[currentPageNumber + 1].color;
     }
 
-    Color blendedColor =
-    Color.alphaBlend(nextColor.withAlpha((255 * pageFraction).round()), color)
+    Color blendedColor = Color.alphaBlend(
+            nextColor.withAlpha((255 * pageScrolledPercent).round()), color)
         .withAlpha(80);
+
+    //how do you make a widget expand to fill?
+    //Container -> set its constraint to BoxConstraints.expand()
+    //Stack -> wrap its child in a Positioned.fill widget
+    //row/column -> wrap its child in an Expanded
 
     return Scaffold(
       appBar: AppBar(
@@ -136,19 +147,19 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
       body: Container(
         decoration: BoxDecoration(color: Colors.black),
-        constraints: BoxConstraints.expand(),
+        constraints: BoxConstraints.expand(), //this causes a container and its child to try to fill its parent. by default, it'll just wrap its child.
         child: Stack(
           children: <Widget>[
-            Positioned.fill(
+            Positioned.fill( //this will cause its child to match the size of the stack
                 child: IgnorePointer(
                     child: Container(
                         decoration: BoxDecoration(
                             // Box decoration takes a gradient
                             gradient: RadialGradient(
-                              radius: 1.4,
+              radius: 1.4,
               // Where the linear gradient begins and ends
               // Add one stop for each color. Stops should increase from 0 to 1
-              stops: [0,  2],
+              stops: [0, 2],
               colors: [
                 // Colors are easy thanks to Flutter's Colors class.
                 blendedColor,
@@ -158,6 +169,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
             Positioned.fill(
                 child: PageView.builder(
+                    //this pageview will handle all touch interaction
                     itemCount: bankingData.entries.length,
                     controller: controller,
                     itemBuilder: (context, index) {
@@ -178,8 +190,10 @@ class _MyHomePageState extends State<MyHomePage> {
             Positioned.fill(
                 child: IgnorePointer(
               child: ClipOval(
+                //this clips the paging icon so that it only appears within the clear inner part of the pie chart
                 clipper: IconPagerClipper(),
                 child: PageView.builder(
+                    //this pageview is bound to the one above, and does not handle its own state either touch events or snapping
                     itemCount: bankingData.entries.length,
                     controller: iconController,
                     pageSnapping: false,
@@ -198,7 +212,7 @@ class _MyHomePageState extends State<MyHomePage> {
               child: IgnorePointer(
                 child: CustomPaint(
                   painter: BankPieChartCustomPainter(
-                      bankingData, color, nextColor, pageFraction),
+                      bankingData, color, nextColor, pageScrolledPercent),
                 ),
               ),
             ),
@@ -206,7 +220,7 @@ class _MyHomePageState extends State<MyHomePage> {
               child: IgnorePointer(
                 child: CustomPaint(
                   painter: BankPieChartOverlayArc(startDegrees, endDegrees,
-                      color, nextColor, pageFraction),
+                      color, nextColor, pageScrolledPercent),
                 ),
               ),
             )
@@ -219,17 +233,20 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
+//CustomClipper<Rect> returns a rect from getClip, and ClipOval uses this to clip its child to only draw
+//inside a circle that fits inside that rect.
 class IconPagerClipper extends CustomClipper<Rect> {
   @override
   bool shouldReclip(IconPagerClipper oldClipper) => true;
 
   @override
   Rect getClip(Size size) {
-    double radius = min(size.width, size.height) / 4 + INSET;
+    //the outer radius for the moving arc is size.width/2
+    //the inner radius for that same arc is outerRadius/2 or size.width/4
+    //the inner radius for the background pie chart is a bit longer than innerArcRadius, or innerArcRadius+INSET
+    double innerPieChartRadius = min(size.width, size.height) / 2 / 2 + INSET;
     Offset center = Offset(size.width / 2, size.height / 2);
-    print(radius);
-
-    return Rect.fromCircle(center: center, radius: radius);
+    return Rect.fromCircle(center: center, radius: innerPieChartRadius);
   }
 }
 
@@ -243,22 +260,30 @@ class BankPieChartCustomPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    Color blendedColor =
-        Color.alphaBlend(nextColor.withAlpha((255 * blend).round()), color)
-            .withAlpha(70);
+    //alphaBlend takes two colors, laying the transparent foreground over the opaque background.
+    //note that you are responsible for actually making the foreground color transparent.
+    Color blendedColor = Color.alphaBlend(
+            nextColor.withAlpha((255 * blend).round()), color)
+        .withAlpha(
+            70); //The resulting color will be totally opaque, so this makes it transparent
 
     double radius = min(size.width, size.height) / 2.0;
     Offset center = Offset(size.width / 2, size.height / 2);
-    canvas.saveLayer(Rect.fromCircle(center: center, radius: radius), Paint());
+    canvas.saveLayer(Rect.fromCircle(center: center, radius: radius),
+        Paint()); //this call ensures the 'clear' below only clears pixels drawn after it
     canvas.drawColor(Colors.black26, BlendMode.srcATop);
     canvas.drawCircle(center, radius - INSET, Paint()..color = blendedColor);
     canvas.drawCircle(
         Offset(size.width / 2, size.height / 2),
         radius / 2 + INSET,
-        Paint()
+        Paint() //IIRC, android best practice is not to recreate the Paint object, not sure about flutter.
           ..blendMode = BlendMode.clear
           ..color = Colors.black);
-    data.percentageOffsets.forEach((p) {
+    data.sectionStartPercentage.forEach((p) {
+      //draw 'clear' lines to divide each section
+      //this ensures the separation between each section is a constant width from the inner radius to outer radius
+      //which results in a better final result than drawing separate arcs for each section.
+      //this is as opposed to drawing an arc for each section and simply leaving a gap.
       canvas.drawLine(
           center,
           center + Offset(cos(p * 2 * pi) * radius, sin(p * 2 * pi) * radius),
@@ -271,7 +296,8 @@ class BankPieChartCustomPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) {
-    return !(oldDelegate is BankPieChartCustomPainter &&
+    return !(oldDelegate
+            is BankPieChartCustomPainter && //a "real" implementation would probably want to check that the banking data is the same too
         oldDelegate.color == color);
   }
 }
@@ -291,6 +317,7 @@ class BankPieChartOverlayArc extends CustomPainter {
     double radius = min(size.width, size.height) / 2.0;
     Offset center = Offset(size.width / 2, size.height / 2);
 
+    //would probably be better to work in radians at all times, but I'm not doing that.
     double startAngleRadians = startAngle * vector.degrees2Radians;
     double endAngleRadians = endAngle * vector.degrees2Radians;
 
@@ -301,6 +328,8 @@ class BankPieChartOverlayArc extends CustomPainter {
     Color gradientEndColor = Color.alphaBlend(
         nextColor.shade800.withAlpha((255 * blend).round()), color.shade800);
 
+    //with the following, we're creating a gradient that covers the entire canvas rect
+    //you could imagine the draw commands below as copying chunks of space from this
     final rect = new Rect.fromLTWH(0.0, 0.0, size.width, size.height);
     final gradient = new SweepGradient(
       startAngle: startAngleRadians,
@@ -311,6 +340,7 @@ class BankPieChartOverlayArc extends CustomPainter {
 
     canvas.saveLayer(Rect.fromCircle(center: center, radius: radius), Paint());
     canvas.drawArc(
+        //this creates a filled arc
         Rect.fromCircle(center: center, radius: radius),
         startAngle * vector.degrees2Radians,
         vector.degrees2Radians * (endAngle - startAngle),
@@ -318,6 +348,7 @@ class BankPieChartOverlayArc extends CustomPainter {
         Paint()..shader = gradient.createShader(rect));
 
     canvas.drawCircle(
+        //and this cuts out the center. might be better to "draw" this as an arc too?
         Offset(size.width / 2, size.height / 2),
         radius / 2,
         Paint()

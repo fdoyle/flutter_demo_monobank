@@ -12,7 +12,7 @@ theirs:
 https://cdn.dribbble.com/users/120141/videos/480/pfm.mp4
 
 mine:
-![Result](https://github.com/fdoyle/flutter_demo_monobank/blob/master/monobank_demo.gif)
+![Result](https://github.com/fdoyle/flutter_demo_monobank/blob/master/bank_demo.gif)
 
 notable successes:
  - arc overlay looks pretty good, decent bit of math involved in that
